@@ -22,7 +22,6 @@ INDIA_INTEREST_MAP = {
     "Museums & Art Galleries": "museums, art galleries, exhibitions"
 }
 
-# Known places with free entry (truth override)
 KNOWN_FREE_PLACES = {
     "Gateway of India",
     "Marine Drive",
@@ -35,7 +34,6 @@ KNOWN_FREE_PLACES = {
     "Haji Ali Dargah"
 }
 
-# Budget caps (per day)
 BUDGET_CAPS = {
     "Budget Friendly": 2000,
     "Moderate": 5000,
@@ -47,39 +45,27 @@ BUDGET_CAPS = {
 # UTILITY FUNCTIONS
 # -----------------------------
 
-def normalize_costs(itinerary_text):
-    """
-    Forces known free places to always show as Free
-    """
+def normalize_costs(text):
     for place in KNOWN_FREE_PLACES:
-        itinerary_text = itinerary_text.replace(
-            f"{place} – Low-cost",
-            f"{place} – Free"
-        )
-        itinerary_text = itinerary_text.replace(
-            f"{place} – Moderate",
-            f"{place} – Free"
-        )
-    return itinerary_text
+        text = text.replace(f"{place} – Low-cost", f"{place} – Free")
+        text = text.replace(f"{place} – Moderate", f"{place} – Free")
+        text = text.replace(f"{place} – Premium", f"{place} – Free")
+    return text
 
 
-def enforce_budget_language(itinerary_text, budget):
-    """
-    Ensures AI does not exceed budget promises
-    """
+def enforce_budget_language(text, budget):
     cap = BUDGET_CAPS.get(budget)
-
     if not cap:
-        return itinerary_text
+        return text
 
     if cap <= 2000:
-        note = "\nNote: This itinerary prioritizes free attractions, street food, and public transport."
+        note = "\n\n📝 Budget Note: Focuses on free attractions, street food, and public transport."
     elif cap <= 5000:
-        note = "\nNote: This itinerary balances popular attractions with comfort."
+        note = "\n\n📝 Budget Note: Balanced comfort with popular attractions."
     else:
-        note = "\nNote: This itinerary includes premium experiences and flexibility."
+        note = "\n\n📝 Budget Note: Includes premium experiences and flexible spending."
 
-    return itinerary_text + note
+    return text + note
 
 
 # -----------------------------
@@ -89,7 +75,7 @@ def enforce_budget_language(itinerary_text, budget):
 @api_view(['POST'])
 def generate_itinerary(request):
     """
-    Generates a budget-safe, India-specific travel itinerary.
+    Generates a descriptive, budget-safe India itinerary.
     """
 
     data = request.data
@@ -106,58 +92,63 @@ def generate_itinerary(request):
             status=400
         )
 
-    # Convert interests to India-specific text
-    interest_text = [
+    interest_str = ", ".join(
         INDIA_INTEREST_MAP[i]
         for i in interests
         if i in INDIA_INTEREST_MAP
-    ]
-    interest_str = ", ".join(interest_text)
+    )
 
     location_str = (
-        f"User current coordinates: {location}. "
+        f"The user is currently near {location}. "
         if location else ""
     )
 
     budget_guidance = {
-        "Budget Friendly": "Daily spending should stay under ₹2,000 using free attractions, street food, and public transport.",
-        "Moderate": "Daily spending should be ₹2,000–₹5,000 with a mix of comfort and value.",
-        "Luxury Experience": "Daily spending can exceed ₹5,000 including premium experiences."
+        "Budget Friendly": "Keep daily spending under ₹2,000 using free attractions and local food.",
+        "Moderate": "Spend ₹2,000–₹5,000 per day with comfort and value.",
+        "Luxury Experience": "Flexible spending with premium experiences."
     }.get(budget, "")
 
     # -----------------------------
-    # PROMPT (STRICT & SAFE)
+    # IMPROVED PROMPT (KEY FIX)
     # -----------------------------
 
     prompt = f"""
-You are an expert Indian travel planning and budgeting assistant.
+You are an expert Indian travel planner and storyteller.
 
 {location_str}
-Plan a {trip_duration} trip in {city}.
+Create a {trip_duration} itinerary for {city}.
 
-User Budget Category: {budget}
-Budget Guidance: {budget_guidance}
 User Interests: {interest_str}
+Budget Category: {budget}
+Budget Guidance: {budget_guidance}
 
-STRICT COST RULES (MANDATORY):
-- NEVER give exact entry fees for monuments.
-- Use ONLY these cost labels for attractions:
+IMPORTANT STYLE REQUIREMENTS:
+- Each attraction MUST include a short descriptive paragraph (2–3 lines).
+- Explain why the place is famous or worth visiting.
+- Mention historical, cultural, or experiential value.
+- Suggest what the traveler should DO there.
+- Maintain an engaging, friendly tone.
+
+STRICT COST RULES:
+- NEVER invent exact monument entry fees.
+- Use ONLY these cost labels:
   • Free
   • Low-cost (₹0–₹100)
   • Moderate (₹100–₹500)
   • Premium (₹500+)
-- Food costs may be estimated per meal.
-- Transport costs may be estimated per day.
+- Food & transport may be estimated as ranges.
 - If unsure, say "Cost varies".
 
-For EACH DAY include:
-- Attractions with cost label
-- Suggested visit timings
-- Estimated food cost range
-- Estimated local transport cost
-- Estimated total daily spend range
+FOR EACH DAY INCLUDE:
+- Morning / Afternoon / Evening plan
+- Attraction name + description + cost label
+- Suggested timings
+- Local food suggestions with cost range
+- Transport estimate
+- Estimated daily spend range
 
-Respond ONLY in plain text using:
+Respond in plain text using:
 Day 1:
 Day 2:
 etc.
@@ -174,10 +165,9 @@ etc.
             {
                 "role": "system",
                 "content": (
-                    "You are an Indian travel budgeting expert. "
-                    "You must prioritize factual accuracy. "
-                    "Never invent exact monument entry fees. "
-                    "Use cost ranges and categories only."
+                    "You are a professional Indian travel guide. "
+                    "Be descriptive, engaging, and informative while staying factually safe. "
+                    "Never invent exact prices."
                 )
             },
             {
@@ -185,8 +175,8 @@ etc.
                 "content": prompt
             }
         ],
-        "max_tokens": 1100,
-        "temperature": 0.3
+        "temperature": 0.45,
+        "max_tokens": 1300
     }
 
     try:
@@ -201,7 +191,6 @@ etc.
         result = response.json()
         itinerary_text = result["choices"][0]["message"]["content"]
 
-        # Post-processing safety
         itinerary_text = normalize_costs(itinerary_text)
         itinerary_text = enforce_budget_language(itinerary_text, budget)
 
